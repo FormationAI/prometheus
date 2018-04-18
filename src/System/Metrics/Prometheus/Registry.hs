@@ -32,7 +32,8 @@ import           System.Metrics.Prometheus.MetricId         (Labels,
 newtype Registry = Registry { unRegistry :: Map MetricId Metric }
 newtype RegistrySample = RegistrySample { unRegistrySample :: Map MetricId MetricSample }
 
-newtype KeyError = KeyError MetricId deriving (Show, Typeable)
+newtype KeyError
+    = TypeMismatch MetricId deriving (Show, Typeable)
 instance Exception KeyError
 
 
@@ -41,30 +42,39 @@ new = Registry Map.empty
 
 
 registerCounter :: Name -> Labels -> Registry -> IO (Counter, Registry)
-registerCounter name labels registry = do
-    counter <- Counter.new
-    return (counter, Registry $ Map.insertWithKey collision mid (CounterMetric counter) (unRegistry registry))
+registerCounter name labels registry =
+    case Map.lookup mid (unRegistry registry) of
+        Nothing -> do
+            counter <- Counter.new
+            return (counter, Registry $ Map.insert mid (CounterMetric counter) (unRegistry registry))
+        Just (CounterMetric x) -> return (x, registry)
+        _ -> throw $ TypeMismatch mid
   where
       mid = MetricId name labels
-      collision k _ _ = throw (KeyError k)
 
 
 registerGauge :: Name -> Labels -> Registry -> IO (Gauge, Registry)
-registerGauge name labels registry = do
-    gauge <- Gauge.new
-    return (gauge, Registry $ Map.insertWithKey collision mid (GaugeMetric gauge) (unRegistry registry))
+registerGauge name labels registry =
+    case Map.lookup mid (unRegistry registry) of
+        Nothing -> do
+            gauge <- Gauge.new
+            return (gauge, Registry $ Map.insert mid (GaugeMetric gauge) (unRegistry registry))
+        Just (GaugeMetric x) -> return (x, registry)
+        _ -> throw $ TypeMismatch mid
   where
       mid = MetricId name labels
-      collision k _ _ = throw (KeyError k)
 
 
 registerHistogram :: Name -> Labels -> [UpperBound] -> Registry -> IO (Histogram, Registry)
-registerHistogram name labels buckets registry = do
-    histogram <- Histogram.new buckets
-    return (histogram, Registry $ Map.insertWithKey collision mid (HistogramMetric histogram) (unRegistry registry))
+registerHistogram name labels buckets registry =
+    case Map.lookup mid (unRegistry registry) of
+        Nothing -> do
+            histogram <- Histogram.new buckets
+            return (histogram, Registry $ Map.insert mid (HistogramMetric histogram) (unRegistry registry))
+        Just (HistogramMetric x) -> return (x, registry)
+        _ -> throw $ TypeMismatch mid
   where
       mid = MetricId name labels
-      collision k _ _ = throw (KeyError k)
 
 
 sample :: Registry -> IO RegistrySample
